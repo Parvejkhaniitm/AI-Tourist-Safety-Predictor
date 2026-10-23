@@ -22,7 +22,7 @@ function startPlanning() {
 </script>
 
 <template>
-  <main class="about-page">
+  <div class="about-page">
     <div class="container about-container">
       <section class="about-hero">
         <div class="about-hero-copy">
@@ -73,7 +73,7 @@ function startPlanning() {
       <section class="about-cta"><div><div class="about-section-tag">READY WHEN YOU ARE</div><h2>Make your next plan<br />a little more informed.</h2></div><BaseButton @click="startPlanning">Explore a destination <span aria-hidden="true">↗</span></BaseButton></section>
       <footer class="about-foot"><span>SAFEROUTE AI · FIELD NOTES</span><span>PLAN WITH CONTEXT. TRAVEL WITH CARE.</span></footer>
     </div>
-  </main>
+  </div>
 </template>
 
 <style scoped>

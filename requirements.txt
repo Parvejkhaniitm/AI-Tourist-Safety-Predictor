@@ -4,9 +4,10 @@ pandas
 pyarrow
 requests
 scikit-learn
-xgboost
+xgboost==2.1.4  # required to deserialize the bundled joblib model artifacts
 shap
 joblib
 flask
 flask-cors
 python-dotenv
+redis>=5.0,<7.0

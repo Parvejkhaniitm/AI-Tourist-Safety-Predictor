@@ -7,14 +7,14 @@ const props = defineProps({
   label: { type: String, required: true },
   distanceKm: { type: Number, required: true },
   durationMin: { type: Number, required: true },
-  score: { type: Number, required: true },
+  score: { type: Number, default: null },
   note: { type: String, default: '' },
   recommended: { type: Boolean, default: false },
   variant: { type: String, default: 'shortest' }, // 'shortest' ya 'safer' (dot ka rang)
 })
 
 // Score ke hisaab se progress bar ka rang: bar-safe / bar-moderate / bar-high
-const barClass = computed(() => `bar-${getRiskLevel(props.score).variant}`)
+const barClass = computed(() => props.score === null ? '' : `bar-${getRiskLevel(props.score).variant}`)
 </script>
 
 <template>
@@ -26,7 +26,8 @@ const barClass = computed(() => `bar-${getRiskLevel(props.score).variant}`)
       </h3>
       <div class="d-flex align-items-center gap-2">
         <span v-if="recommended" class="recommended-pill">Recommended</span>
-        <RiskBadge :score="score" />
+        <RiskBadge v-if="score !== null" :score="score" />
+        <span v-else class="badge text-bg-secondary">Risk estimate unavailable</span>
       </div>
     </div>
 
@@ -41,11 +42,11 @@ const barClass = computed(() => `bar-${getRiskLevel(props.score).variant}`)
       </div>
     </div>
 
-    <div class="d-flex justify-content-between small fw-semibold mb-1">
-      <span>Route safety score</span>
+    <div v-if="score !== null" class="d-flex justify-content-between small fw-semibold mb-1">
+      <span>Estimated route risk</span>
       <span>{{ score }} / 100</span>
     </div>
-    <div
+    <div v-if="score !== null"
       class="progress mb-3"
       style="height: 8px"
       role="progressbar"

@@ -1,5 +1,6 @@
 """Google Routes API integration and sampled risk comparison for walking routes."""
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import requests
@@ -8,8 +9,9 @@ from .scoring import UpstreamError, analyze, load_models, nearest_record
 from .cache import TTLCache
 
 GOOGLE_ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
-ROUTE_CACHE = TTLCache(ttl=300, maxsize=100)
-MAX_ROUTES = 3
+ROUTE_RESULT_CACHE = TTLCache(ttl=900, maxsize=100, namespace="route_results")
+ROUTE_SAMPLE_CACHE = TTLCache(ttl=900, maxsize=1000, namespace="route_risk_samples")
+MAX_ROUTES = 4
 SAMPLES_PER_ROUTE = 1
 
 
@@ -33,9 +35,10 @@ def _valid_point(point, label):
     }
 
 
-def decode_polyline(encoded):
-    """Decode Google's encoded polyline into [{lat, lng}, ...]."""
+def decode_polyline(encoded, precision=5):
+    """Decode an encoded polyline into [{lat, lng}, ...]."""
     points, index, lat, lng = [], 0, 0, 0
+    factor = 10 ** precision
     while index < len(encoded):
         values = []
         for _ in range(2):
@@ -52,8 +55,76 @@ def decode_polyline(encoded):
             values.append(~(result >> 1) if result & 1 else (result >> 1))
         lat += values[0]
         lng += values[1]
-        points.append({"lat": lat / 1e5, "lng": lng / 1e5})
+        points.append({"lat": lat / factor, "lng": lng / factor})
     return points
+
+
+def _valhalla_routes(origin, destination):
+    """Ask a second OSM router for alternatives when the first has only one."""
+    response = requests.post(
+        "https://valhalla1.openstreetmap.de/route",
+        json={
+            "locations": [
+                {"lat": origin["lat"], "lon": origin["lng"]},
+                {"lat": destination["lat"], "lon": destination["lng"]},
+            ],
+            "costing": "auto",
+            "alternates": 2,
+            "format": "json",
+            "shape_format": "polyline6",
+            "units": "kilometers",
+            "directions_type": "none",
+        },
+        headers={"X-Client-Id": "SafeRouteAI demo", "User-Agent": "SafeRouteAI/1.0"},
+        timeout=4,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    trips = [payload.get("trip")]
+    trips.extend(item.get("trip") for item in payload.get("alternates", []) if isinstance(item, dict))
+    routes = []
+    for trip in trips:
+        if not isinstance(trip, dict):
+            continue
+        legs = trip.get("legs") or []
+        summary = trip.get("summary") or {}
+        if not legs or not legs[0].get("shape"):
+            continue
+        path = decode_polyline(legs[0]["shape"], precision=6)
+        if len(path) < 2:
+            continue
+        routes.append({
+            "label": "OpenStreetMap alternative",
+            "distance_meters": float(summary.get("length", 0)) * 1000,
+            "duration_seconds": float(summary.get("time", 0)),
+            "path": path,
+        })
+    return routes
+
+
+def _distinct_routes(routes):
+    """Drop near-identical duplicates returned by independent routing engines."""
+    unique = []
+    for candidate in routes:
+        distance = candidate.get("distance_meters") or 0
+        path = candidate.get("path") or []
+        midpoint = path[len(path) // 2] if path else None
+        duplicate = False
+        for existing in unique:
+            other_distance = existing.get("distance_meters") or 0
+            other_path = existing.get("path") or []
+            other_midpoint = other_path[len(other_path) // 2] if other_path else None
+            distance_close = abs(distance - other_distance) < max(750, distance * 0.015)
+            midpoint_close = midpoint and other_midpoint and (
+                abs(midpoint["lat"] - other_midpoint["lat"]) < 0.008
+                and abs(midpoint["lng"] - other_midpoint["lng"]) < 0.008
+            )
+            if distance_close and midpoint_close:
+                duplicate = True
+                break
+        if not duplicate:
+            unique.append(candidate)
+    return unique
 
 
 def _route_samples(path):
@@ -101,12 +172,15 @@ def _historical_sample(point):
             "Historical grid average only; live POI scoring and "
             "current time/weather adjustments were unavailable."
         ),
+        "reasons": [
+            "This estimate uses the nearest available historical grid cell only.",
+            "Live surroundings, time, and weather effects were unavailable for this route sample.",
+        ],
     }
 
 
 def _score_sample(point, visit_dt, live_scoring_failed=None):
     """Try live scoring unless it already failed for this request; then use history."""
-    print(f"[ROUTES DEBUG] Scoring sample: {point}", flush=True)
 
     key = (
         round(point["lat"], 4),
@@ -114,7 +188,7 @@ def _score_sample(point, visit_dt, live_scoring_failed=None):
         visit_dt.isoformat(timespec="minutes") if visit_dt else "now",
     )
 
-    cached = ROUTE_CACHE.get(key)
+    cached = ROUTE_SAMPLE_CACHE.get(key)
     if cached is not None:
         return cached
 
@@ -124,7 +198,6 @@ def _score_sample(point, visit_dt, live_scoring_failed=None):
 
     if not skip_live:
         try:
-            print("[ROUTES DEBUG] Calling analyze()", flush=True)
             result = analyze(
                 point["lat"],
                 point["lng"],
@@ -143,43 +216,31 @@ def _score_sample(point, visit_dt, live_scoring_failed=None):
                 "factors_total": result["factors_total"],
                 "missing_factors": result["missing_factors"],
                 "source": "live_model",
+                "reasons": list(dict.fromkeys(
+                    result.get("reasons", [])
+                    + result.get("confidence", {}).get("reasons", [])
+                )),
             }
-            print("[ROUTES DEBUG] analyze() completed", flush=True)
 
-        except UpstreamError as exc:
+        except UpstreamError:
             if live_scoring_failed is not None:
                 live_scoring_failed[0] = True
-            print(
-                f"[ROUTES DEBUG] Live scoring unavailable: {exc}. "
-                "Trying historical grid.",
-                flush=True,
-            )
             sample = _historical_sample(point)
     else:
-        print(
-            "[ROUTES DEBUG] Skipping live scoring after earlier "
-            "OpenStreetMap failure; using historical grid.",
-            flush=True,
-        )
         sample = _historical_sample(point)
 
-    if sample["source"] == "historical_grid":
-        print(
-            f"[ROUTES DEBUG] Historical fallback: score={sample['score']}, "
-            f"level={sample['level']}",
-            flush=True,
-        )
-
-    ROUTE_CACHE.set(key, sample)
+    ROUTE_SAMPLE_CACHE.set(key, sample)
     return sample
 
 
 def _compare_route(route, index, visit_dt, live_scoring_failed=None):
     encoded = route.get("polyline", {}).get("encodedPolyline")
-    if not encoded:
-        raise RoutesProviderError("Google returned a route without a polyline.")
-
-    path = decode_polyline(encoded)
+    if route.get("path"):
+        path = route["path"]
+    elif encoded:
+        path = decode_polyline(encoded)
+    else:
+        raise RoutesProviderError("The route provider returned no usable geometry.")
     samples = _route_samples(path)
     scored, failures = [], 0
 
@@ -187,11 +248,6 @@ def _compare_route(route, index, visit_dt, live_scoring_failed=None):
         try:
             scored.append(_score_sample(point, visit_dt, live_scoring_failed))
         except (UpstreamError, RuntimeError, requests.RequestException) as exc:
-            print(
-                f"[ROUTES DEBUG] Sample scoring failed: "
-                f"{type(exc).__name__}: {exc}",
-                flush=True,
-            )
             failures += 1
 
     if not scored:
@@ -207,11 +263,23 @@ def _compare_route(route, index, visit_dt, live_scoring_failed=None):
             key=lambda value: confidence_rank.get(value, 0),
         )
 
+    reasons = list(dict.fromkeys(
+        reason for item in scored for reason in item.get("reasons", [])
+    ))
+    if risk is None:
+        explanation = "A route risk estimate could not be calculated from the available data."
+    else:
+        explanation = (
+            f"Estimated route risk is {risk}/100, based on {len(scored)} sampled point"
+            f"{'s' if len(scored) != 1 else ''} ({confidence.lower()} confidence). "
+            + (" ".join(reasons[:2]) if reasons else "No route-specific risk signals were available.")
+        )
+
     return {
         "id": f"route-{index + 1}",
-        "label": "Recommended by Google" if index == 0 else f"Alternative {index}",
-        "distance_meters": route.get("distanceMeters"),
-        "duration_seconds": _duration_seconds(route.get("duration")),
+        "label": route.get("label") or ("Recommended route" if index == 0 else f"Alternative {index}"),
+        "distance_meters": route.get("distanceMeters", route.get("distance_meters")),
+        "duration_seconds": _duration_seconds(route.get("duration")) if route.get("duration") is not None else route.get("duration_seconds"),
         "polyline": encoded,
         "path": path,
         "estimated_risk_score": risk,
@@ -221,25 +289,24 @@ def _compare_route(route, index, visit_dt, live_scoring_failed=None):
         "sample_count_requested": len(samples),
         "sample_failures": failures,
         "samples": scored,
+        "risk_reasons": reasons[:3],
+        "risk_explanation": explanation,
     }
 
 
-def compare_walking_routes(origin, destination, visit_dt=None):
-    """Get up to three Google walking routes and estimate risk at sampled route points."""
+def compare_routes(origin, destination, visit_dt=None):
+    """Get road alternatives and estimate risk at sampled route points."""
     api_key = os.getenv("GOOGLE_MAPS_API_KEY") or os.getenv("GOOGLE_ROUTES_API_KEY")
-    if not api_key:
-        raise RoutesProviderError(
-            "Google Routes API key is missing. Add GOOGLE_MAPS_API_KEY to the project-root .env file."
-        )
-
     cache_key = (
         round(origin["lat"], 5),
         round(origin["lng"], 5),
         round(destination["lat"], 5),
         round(destination["lng"], 5),
+        origin["name"].casefold(),
+        destination["name"].casefold(),
         visit_dt.isoformat(timespec="minutes") if visit_dt else "now",
     )
-    cached = ROUTE_CACHE.get(("routes",) + cache_key)
+    cached = ROUTE_RESULT_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
@@ -260,7 +327,7 @@ def compare_walking_routes(origin, destination, visit_dt=None):
                 }
             }
         },
-        "travelMode": "WALK",
+        "travelMode": "DRIVE",
         "computeAlternativeRoutes": True,
         "languageCode": "en",
         "units": "METRIC",
@@ -274,60 +341,73 @@ def compare_walking_routes(origin, destination, visit_dt=None):
         ),
     }
 
-    try:
-        print("[ROUTES DEBUG] Calling Google Routes API", flush=True)
-        response = requests.post(
-            GOOGLE_ROUTES_URL,
-            json=payload,
-            headers=headers,
-            timeout=20,
-        )
-        print(
-            f"[ROUTES DEBUG] Google responded: HTTP {response.status_code}",
-            flush=True,
-        )
-    except requests.RequestException as exc:
-        raise RoutesProviderError(
-            "Could not connect to Google Routes API. Please retry."
-        ) from exc
+    raw_routes = []
+    provider = "OSRM"
+    if api_key:
+        try:
+            response = requests.post(GOOGLE_ROUTES_URL, json=payload, headers=headers, timeout=10)
+            response.raise_for_status()
+            raw_routes = response.json().get("routes", [])[:MAX_ROUTES]
+            provider = "Google"
+        except (requests.RequestException, ValueError) as exc:
+            print(f"[ROUTES] Google unavailable; trying OSRM ({type(exc).__name__}).", flush=True)
 
-    if response.status_code in (401, 403):
-        raise RoutesProviderError(
-            "Google Routes API rejected the key. Check that Routes API is enabled and the key has permission."
-        )
-    if response.status_code == 429:
-        raise RoutesProviderError(
-            "Google Routes API rate limit reached. Please wait and retry."
-        )
-    if not response.ok:
-        raise RoutesProviderError(
-            f"Google Routes API request failed (HTTP {response.status_code})."
-        )
+    if not raw_routes:
+        try:
+            coordinates = f"{origin['lng']},{origin['lat']};{destination['lng']},{destination['lat']}"
+            response = requests.get(
+                f"https://router.project-osrm.org/route/v1/driving/{coordinates}",
+                params={"alternatives": "3", "overview": "full", "geometries": "geojson"},
+                headers={"User-Agent": "SafeRouteAI/1.0 (route comparison demo)"},
+                timeout=8,
+            )
+            response.raise_for_status()
+            payload_osrm = response.json()
+            if payload_osrm.get("code") != "Ok":
+                raise RoutesProviderError("No drivable route was found between those points.")
+            raw_routes = [
+                {
+                    "label": "OSRM route",
+                    "distance_meters": route.get("distance"),
+                    "duration_seconds": route.get("duration"),
+                    "path": [{"lat": lat, "lng": lng} for lng, lat in route.get("geometry", {}).get("coordinates", [])],
+                }
+                for route in payload_osrm.get("routes", [])[:MAX_ROUTES]
+            ]
+        except (requests.RequestException, ValueError) as exc:
+            raise RoutesProviderError("Could not get directions. Please retry in a moment.") from exc
 
-    try:
-        raw_routes = response.json().get("routes", [])[:MAX_ROUTES]
-    except ValueError as exc:
-        raise RoutesProviderError(
-            "Google Routes API returned an invalid response."
-        ) from exc
+    if len(raw_routes) < 2:
+        try:
+            extra_routes = _valhalla_routes(origin, destination)
+            raw_routes = _distinct_routes(raw_routes + extra_routes)
+            if len(raw_routes) > 1:
+                provider = f"{provider} + OpenStreetMap alternatives"
+        except (requests.RequestException, ValueError, KeyError, TypeError) as exc:
+            print(f"[ROUTES] Alternate router unavailable ({type(exc).__name__}).", flush=True)
 
     if not raw_routes:
         raise RoutesProviderError(
-            "Google could not find a walking route between those points."
+            "No driving route was found between those points."
         )
 
-    # Scoped to this API request; a later request can try live scoring again.
-    live_scoring_failed = [False]
-    results = []
-
-    for index, route in enumerate(raw_routes):
-        try:
-            results.append(
-                _compare_route(route, index, visit_dt, live_scoring_failed)
-            )
-        except (ValueError, RoutesProviderError):
-            # Do not return a route whose geometry cannot be processed.
-            continue
+    # Load the models before concurrent scoring so workers don't race model init.
+    load_models()
+    # Route samples are independent. Score at most two at a time to reduce cold
+    # request latency without flooding the public map/weather providers.
+    results_by_index = []
+    with ThreadPoolExecutor(max_workers=min(2, len(raw_routes))) as pool:
+        futures = {
+            pool.submit(_compare_route, route, index, visit_dt): index
+            for index, route in enumerate(raw_routes)
+        }
+        for future, index in futures.items():
+            try:
+                results_by_index.append((index, future.result()))
+            except (ValueError, RoutesProviderError):
+                # Do not return a route whose geometry cannot be processed.
+                continue
+    results = [result for _, result in sorted(results_by_index, key=lambda item: item[0])]
 
     if not results:
         raise RoutesProviderError(
@@ -350,7 +430,8 @@ def compare_walking_routes(origin, destination, visit_dt=None):
     output = {
         "origin": origin,
         "destination": destination,
-        "travel_mode": "WALK",
+        "travel_mode": "DRIVE",
+        "route_provider": provider,
         "visit_time_local": (
             visit_dt.isoformat(timespec="minutes") if visit_dt else None
         ),
@@ -359,10 +440,10 @@ def compare_walking_routes(origin, destination, visit_dt=None):
         "risk_method": f"Mean of up to {SAMPLES_PER_ROUTE} sampled point estimates per route",
         "limitations": [
             "Risk scores are model estimates, not guarantees of personal safety.",
-            "The model was trained on Chicago data; confidence may be lower outside Chicago.",
+            "The model has strongest coverage in its training region; confidence may be lower elsewhere.",
             "Only a few points are sampled along each route; conditions between samples may differ.",
             "Historical incident data is available only where the backend has matching local records.",
         ],
     }
-    ROUTE_CACHE.set(("routes",) + cache_key, output)
+    ROUTE_RESULT_CACHE.set(cache_key, output)
     return output

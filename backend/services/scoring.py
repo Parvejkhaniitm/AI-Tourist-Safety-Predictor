@@ -1,10 +1,11 @@
 """Core of /api/analyze: loads both models and combines them into one explained score.
 
-score = 50 + place effect (+ local-record effect in Chicago) + time effect + weather effect
+score = 50 + place effect (+ local-record effect where available) + time effect + weather effect
 
 Every term is in score points, so the factor cards always add up to the score (before clipping to 0-100).
 """
 import math
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import joblib
@@ -19,16 +20,18 @@ from . import explain
 from .cache import TTLCache
 from .weather import get_local_context
 
-CHICAGO = (41.8781, -87.6298)
+TRAINING_CENTER = (41.8781, -87.6298)
 START = 50.0
 LOCAL_WEIGHT = 0.7           # share of the place effect taken from real local records when they exist
 LOCAL_MATCH_M = 450          # a record cell counts as "here" within this distance
 TIME_GROUP = ["hour", "dow", "is_weekend", "is_holiday", "sun_elevation"]
 WEATHER_GROUP = ["temp_c", "precip_mm", "snowfall_cm", "wind_kmh", "cloud_pct"]
-DISCLAIMER = ("Scores are estimates from a model trained on Chicago data and live public data. "
+DISCLAIMER = ("Scores are estimates from a model trained on one region and live public data. "
               "They do not guarantee personal safety.")
 
-_places_cache = TTLCache(ttl=900)
+_places_cache = TTLCache(ttl=900, namespace="osm_places")
+_places_failure_cache = TTLCache(ttl=10, namespace="osm_places_failure")
+_analysis_cache = TTLCache(ttl=300, maxsize=1000, namespace="analysis_results_v4")
 _holiday_cache = {}
 _models = {}
 
@@ -76,13 +79,18 @@ def is_us_holiday(lat, lng, dt):
 def get_places(lat, lng, fast=False):
     key = (round(lat, 3), round(lng, 3))
     hit = _places_cache.get(key)
-    if hit:
+    if hit is not None:
         return hit
+    if _places_failure_cache.get(key):
+        raise UpstreamError("Nearby map data is temporarily unavailable.")
     try:
         places = get_features_live(lat, lng, fast=fast)
     except Exception as e:
-        raise UpstreamError("The nearby-places service (OpenStreetMap) did not respond. "
-                            "Please try again in a moment.") from e
+        _places_failure_cache.set(key, True)
+        print(f"[SCORING] Nearby-place lookup failed: {type(e).__name__}: {e}", flush=True)
+        raise UpstreamError(
+            f"Nearby-place lookup failed after mirror retries ({type(e).__name__}: {e})."
+        ) from e
     _places_cache.set(key, places)
     return places
 
@@ -111,18 +119,21 @@ def crowd_estimate(places, local_dt):
     return {"level": level, "index": round(min(index, 100), 1), "basis": basis}
 
 
-def confidence(places, iso_outlier, dist_chicago_km, weather_ok, has_local):
+def confidence(places, iso_outlier, dist_training_km, weather_ok, has_local):
     score, reasons = 100, []
-    if dist_chicago_km > 30:
-        score -= 45
-        reasons.append(f"This place is about {dist_chicago_km:,.0f} km from Chicago, where the model was trained.")
+    if dist_training_km > 30:
+        score -= 60
+        reasons.append("This place is outside the region represented in the model's training data.")
     if iso_outlier:
         score -= 30
         reasons.append("The surroundings look unusual compared with the places the model learned from.")
     if not weather_ok:
         score -= 15
         reasons.append("Weather data was unavailable.")
-    if places["poi_total"] == 0 and sum(places[c] for c in FEATURE_COLUMNS if c != "poi_total") == 0:
+    if places is None:
+        score -= 20
+        reasons.append("Nearby OpenStreetMap data was unavailable, so location features were not scored.")
+    elif places["poi_total"] == 0 and sum(places[c] for c in FEATURE_COLUMNS if c != "poi_total") == 0:
         score -= 20
         reasons.append("Very little map data was found nearby.")
     elif places["poi_total"] < 3:
@@ -139,15 +150,47 @@ def level_of(score):
 
 
 # ---------------- main entry ----------------
-def analyze(lat, lng, name, local_dt=None, fast=False):
+def analyze(lat, lng, name, local_dt=None, fast=False, force_refresh=False):
+    # Whole-response cache makes returning to an already analyzed place cheap.
+    # Default analyses are keyed by UTC hour so a result cannot bleed across
+    # a local-time/hour boundary; explicitly requested visit times use the minute.
+    visit_key = (
+        local_dt.isoformat(timespec="minutes")
+        if local_dt else datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+    )
+    cache_key = (round(lat, 5), round(lng, 5), str(name).strip().casefold(), visit_key)
+    if not force_refresh:
+        cached_result = _analysis_cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
+
     tp, sp = load_models()
-    ctx = get_local_context(lat, lng, local_dt)
+    dist_km = float(haversine_m(lat, lng, *TRAINING_CENTER)) / 1000
+    outside_training_area = dist_km > 30
+    # Weather and OSM do not depend on each other: overlap their network wait.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        weather_future = pool.submit(get_local_context, lat, lng, local_dt)
+        places_future = pool.submit(get_places, lat, lng, fast=fast)
+        ctx = weather_future.result()
+        try:
+            places = places_future.result()
+        except UpstreamError:
+            # Keep analysis usable when Overpass is temporarily unreachable, but
+            # never substitute invented POI counts or describe the map as observed.
+            places = None
     ldt, weather = ctx["local_dt"], ctx["weather"]
-    places = get_places(lat, lng, fast=fast)            # may raise UpstreamError
 
     # --- "where": place baseline ---
-    Xs = pd.DataFrame([{c: places[c] for c in FEATURE_COLUMNS}])[sp["features"]]
-    model_base = float(to_baseline_score(sp, float(sp["model"].predict(Xs)[0])))
+    model_places = places if places is not None else sp["median"]
+    Xs = pd.DataFrame([{c: model_places[c] for c in FEATURE_COLUMNS}])[sp["features"]]
+    model_base = (
+        float(to_baseline_score(sp, float(sp["model"].predict(Xs)[0])))
+        if places is not None else START
+    )
+    # A region-specific model can extrapolate to extreme values elsewhere. Blend
+    # remote estimates toward neutral instead of clipping them to a misleading 0/100.
+    if outside_training_area:
+        model_base = START + (model_base - START) * 0.25
     hist = nearest_record(sp["cells"], lat, lng)
     if hist:
         w_loc = 1 - LOCAL_WEIGHT
@@ -155,7 +198,7 @@ def analyze(lat, lng, name, local_dt=None, fast=False):
         hist_pts = LOCAL_WEIGHT * (hist["label"] - START)
     else:
         loc_pts, hist_pts = model_base - START, None
-    iso_outlier = int(sp["isolation"].predict(Xs)[0]) == -1
+    iso_outlier = int(sp["isolation"].predict(Xs)[0]) == -1 if places is not None else False
 
     # --- "when": time + weather ---
     sun = float(solar_elevation(lat, lng, pd.DatetimeIndex([ctx["utc_dt"]]))[0])
@@ -182,23 +225,27 @@ def analyze(lat, lng, name, local_dt=None, fast=False):
     if abs(adj) > 30:
         f = 30 / abs(adj)
         time_pts, weather_pts = time_pts * f, (weather_pts * f if weather_pts is not None else None)
+    if outside_training_area:
+        time_pts *= 0.5
+        weather_pts = weather_pts * 0.5 if weather_pts is not None else None
 
     raw_total = START + loc_pts + (hist_pts or 0.0) + time_pts + (weather_pts or 0.0)
     score = int(round(min(100.0, max(0.0, raw_total))))
     level, level_range = level_of(score)
 
     # --- explanation, confidence ---
-    crowd = crowd_estimate(places, ldt)
+    crowd = crowd_estimate(places, ldt) if places is not None else None
     factors = explain.build_factors(
         places=places, loc_pts=loc_pts, hist=hist, hist_pts=hist_pts, time_pts=time_pts,
         weather_pts=weather_pts, local_dt=ldt, sun_elev=sun, is_holiday=row["is_holiday"],
         weather=weather, weather_error=ctx["weather_error"], crowd=crowd)
-    dist_km = float(haversine_m(lat, lng, *CHICAGO)) / 1000
     conf = confidence(places, iso_outlier, dist_km, weather is not None, hist is not None)
+    if outside_training_area:
+        conf["reasons"].append("Model effects are reduced outside the region represented in its training data.")
 
     margin = sp["cv_mae"] * (0.5 if hist else 1.0) * (1.5 if dist_km > 30 else 1.0)
     missing = [f["key"] for f in factors if not f["available"]]
-    return {
+    result = {
         "destination": {"name": name, "lat": lat, "lng": lng},
         "analyzed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "visit_time_local": ldt.isoformat(timespec="minutes"),
@@ -210,7 +257,9 @@ def analyze(lat, lng, name, local_dt=None, fast=False):
         "reasons": explain.top_reasons(factors),
         "factors": [{k: v for k, v in f.items() if k != "reason"} for f in factors],
         "missing_factors": missing,
-        "factors_used": len(factors) - len(missing),
-        "factors_total": len(factors),
+        "factors_used": sum(f["available"] for f in factors if f["key"] != "crowd"),
+        "factors_total": sum(f["key"] != "crowd" for f in factors),
         "disclaimer": DISCLAIMER,
     }
+    _analysis_cache.set(cache_key, result)
+    return result

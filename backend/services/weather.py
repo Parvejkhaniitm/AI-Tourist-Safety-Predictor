@@ -7,7 +7,7 @@ from .cache import TTLCache
 
 URL = "https://api.open-meteo.com/v1/forecast"
 HOURLY = "temperature_2m,precipitation,snowfall,wind_speed_10m,cloud_cover"
-_cache = TTLCache(ttl=900)
+_cache = TTLCache(ttl=900, namespace="open_meteo")
 
 
 def _load(lat, lng):

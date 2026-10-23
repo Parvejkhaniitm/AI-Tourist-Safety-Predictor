@@ -16,7 +16,7 @@ const mockDestinations = {
   'india gate': {
     name: 'India Gate',
     location: 'New Delhi, Delhi',
-    score: 78,
+    score: 24,
     reasons: [
       'The location sits on a central, open avenue, which the sample dataset rates as low risk.',
       'Weekend crowds and minor sample incident notes raise the risk slightly, so keep belongings secure.',
@@ -31,7 +31,7 @@ const mockDestinations = {
   'red fort': {
     name: 'Red Fort',
     location: 'Old Delhi, Delhi',
-    score: 62,
+    score: 64,
     reasons: [
       'Dense surroundings and narrow lanes nearby push the sample risk estimate up.',
       'Heavy crowds near entry points raise the risk, so keep belongings close.',
@@ -46,7 +46,7 @@ const mockDestinations = {
   'qutub minar': {
     name: 'Qutub Minar',
     location: 'Mehrauli, New Delhi',
-    score: 74,
+    score: 22,
     reasons: [
       'A fenced complex with staffed entry keeps the sample risk estimate low.',
       'Moderate crowds and very few sample incident notes keep the overall estimate in the Safe range.',
@@ -61,7 +61,7 @@ const mockDestinations = {
   "humayun's tomb": {
     name: "Humayun's Tomb",
     location: 'Nizamuddin, New Delhi',
-    score: 81,
+    score: 20,
     reasons: [
       'A large walled garden with controlled entry keeps the sample risk estimate low.',
       'Calmer crowds and few sample incident notes support a Safe rating.',
@@ -76,7 +76,7 @@ const mockDestinations = {
   'lotus temple': {
     name: 'Lotus Temple',
     location: 'Kalkaji, New Delhi',
-    score: 36,
+    score: 78,
     reasons: [
       'Busy approach roads and limited lighting near exits push the sample risk estimate up.',
       'Large evening crowds and several sample incident notes raise the risk. Weather data is missing, so confidence is lower.',

@@ -1,5 +1,4 @@
-// Route comparison ka saara hisaab yahin hai, taaki components me business logic na ho.
-// Score = RISK score: jitna kam, utna behtar.
+// Route comparison helpers. Model risk points are lower for lower estimated risk.
 
 const round1 = (n) => Math.round(n * 10) / 10 // 4.1 - 3.4 = 0.7000000000000002 jaisa float error hatata hai
 

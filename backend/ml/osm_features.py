@@ -9,6 +9,7 @@ Output: data/processed/cell_features.parquet
 Usage : python backend/ml/osm_features.py
 """
 import time
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -26,7 +27,7 @@ MIRRORS = [
     "https://overpass.openstreetmap.fr/api/interpreter",
 ]
 HEADERS = {
-    "User-Agent": "SafeRoute-AI-hackathon/1.0 (student project; counts nearby OpenStreetMap places)",
+    "User-Agent": "SafeRouteAI/1.0 (+https://github.com/harishgit0/AI-Tourist-Safety-Predictor)",
     "Accept": "application/json",
 }
 TILES = 3  # Chicago is split into TILES x TILES squares for the bulk download
@@ -49,6 +50,27 @@ CATEGORIES = {
 }
 DENSITY_CATS = ["bars", "food", "shops", "lodging", "attractions", "banks_atms"]
 FEATURE_COLUMNS = list(CATEGORIES) + ["poi_total"]
+
+
+def _live_selectors(lat, lng, radius):
+    """Combine same-key filters into one selector to reduce Overpass query cost."""
+    values_by_key = defaultdict(set)
+    any_value_keys = set()
+    for rules in CATEGORIES.values():
+        for key, values in rules:
+            if values is None:
+                any_value_keys.add(key)
+            else:
+                values_by_key[key].update(values)
+
+    selectors = []
+    for key in sorted(any_value_keys | values_by_key.keys()):
+        if key in any_value_keys:
+            selector = f'nwr["{key}"](around:{radius},{lat},{lng});'
+        else:
+            selector = f'nwr{_filter(key, values_by_key[key])}(around:{radius},{lat},{lng});'
+        selectors.append(selector)
+    return "".join(selectors)
 
 
 def _filter(key, values):
@@ -158,25 +180,22 @@ def build_cell_features():
 # ---------------- live: any point on Earth ----------------
 def get_features_live(lat, lng, radius=RADIUS_M, fast=False):
     """Count nearby places. Fast mode is intended for route comparisons."""
-    parts = "".join(
-        f"nwr{_filter(k, v)}(around:{radius},{lat},{lng});"
-        for rules in CATEGORIES.values()
-        for k, v in rules
-    )
-    query = f"[out:json][timeout:8];({parts});out tags center;"
+    parts = _live_selectors(lat, lng, radius)
+    query = f"[out:json][timeout:15];({parts});out tags center;"
 
     if fast:
         data = None
         last_error = "No Overpass server responded"
 
-        # Try at most two servers, with a short timeout and no retry delays.
-        for url in MIRRORS[:2]:
+        # Query selectors are grouped by tag key; allow multiple mirrors a little
+        # more time so a slow public instance does not make both cards disappear.
+        for url in MIRRORS[:3]:
             try:
                 response = requests.post(
                     url,
                     data={"data": query},
                     headers=HEADERS,
-                    timeout=3,
+                    timeout=4,
                 )
                 if response.status_code != 200:
                     last_error = f"HTTP {response.status_code}"
@@ -185,7 +204,7 @@ def get_features_live(lat, lng, radius=RADIUS_M, fast=False):
                 data = response.json()
                 break
             except (requests.RequestException, ValueError) as exc:
-                last_error = type(exc).__name__
+                last_error = f"{type(exc).__name__}: {exc}"
 
         if data is None:
             raise RuntimeError(

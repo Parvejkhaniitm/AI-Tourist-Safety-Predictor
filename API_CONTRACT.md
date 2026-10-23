@@ -1,55 +1,50 @@
-# SafeRoute API and backend design
+# SafeRoute AI API contract
 
-This contract maps the current Vue site to Flask REST APIs. Base path is `/api`; all JSON errors use `{ "error": { "code": "...", "message": "..." } }`. Scores are **risk scores**: lower means lower estimated risk. A score is not a guarantee of personal safety.
+The Vue frontend and active Flask API use the same JSON contracts below. All endpoints use the `/api` prefix. Errors return `{ "error": { "code": "...", "message": "..." } }`.
 
-## Website flows
+## Active endpoints
 
-| UI flow | Endpoint | Authentication | Purpose |
-|---|---|---|---|
-| Home suggestions | `GET /destinations?q=` | No | Return up to 20 active destination names |
-| Destination analysis | `POST /analyze` | Optional bearer JWT | Gather available factors, score, persist analysis |
-| Route comparison | `GET /routes?destination=&start=` | No | Compare shortest and lower-risk routes |
-| Create account | `POST /auth/register` | No | Create user and issue access/refresh tokens |
-| Sign in | `POST /auth/login` | No | Verify credentials and issue tokens |
-| Refresh session | `POST /auth/refresh` | Refresh bearer | Issue short-lived access token |
-| Sign out | `POST /auth/logout` | Bearer | Revoke presented token |
-| Analysis history | `GET /history` | Access bearer | Return caller's latest 50 saved analyses |
-| Service health | `GET /health` | No | Liveness check |
+| Endpoint | Request | Response |
+|---|---|---|
+| `GET /api/health` | None | `{ status, models }`; loads both bundled model artifacts |
+| `GET /api/destinations` | None | Five quick-start suggestions; users can also search for other places |
+| `GET /api/geocode?q=...` | User-submitted place query | Coordinates and a display label; called on submit, never autocomplete |
+| `GET /api/reverse-geocode?lat=...&lng=...` | Browser location | Nearby area label using rounded coordinates |
+| `POST /api/analyze` | `{ lat, lng, name?, datetime? }` | Location risk estimate, confidence, explanations, factors, and caveats |
+| `POST /api/routes` | `{ origin: { lat, lng, name? }, destination: { lat, lng, name? }, datetime? }` | Road geometry, distance/time, and sampled model risk estimates |
 
-## Response contracts
+Scores are 0–100 **risk estimates**: a lower score means lower estimated risk. They are not emergency guidance or a guarantee of safety.
 
-`GET /api/destinations` returns `string[]`, matching the current Vue adapter.
+## Analysis response
 
-`POST /api/analyze` accepts `{ "destination": "India Gate" }`. Success returns `{ destination, location, score, confidence, analyzedAt, factors, reasons, analysisId, modelVersion }`. Each factor has `key`, `title`, `text`, `impact` (`lowers | neutral | raises`), `impactLabel`, `dataLabel`, and `available`. Unknown provider data must have `available: false` and is excluded from scoring. `analyzedAt` is an ISO 8601 timestamp.
+`POST /api/analyze` returns `destination` (`name`, `lat`, `lng`), `analyzed_at`, `visit_time_local`, `timezone`, `score`, `level`, `level_range`, `confidence` (`label`, `reasons`), `reasons`, `factors`, `missing_factors`, `factors_used`, `factors_total`, and `disclaimer`.
 
-`GET /api/routes` accepts destination and an optional origin. Success shape expected by the UI is `{ destination, start, destinationLabel, shortest, safer }`; each route has `distanceKm`, `durationMin`, `score`, and `note`, while `safer` may be `null`. Until a real directions provider and street-level safety features are configured, the backend returns HTTP 503 with a stable error body rather than generating fake routes. The route page can continue to use mock mode for its illustrative demo.
+Each factor includes `key`, `title`, `text`, `impact`, `impact_label`, `points`, `data_label`, and `available`. When nearby map data is unavailable, the location and crowd factors are marked unavailable and excluded rather than filled with fabricated counts. The analysis can still return a lower-confidence estimate from the time/weather signal and any local history that exists.
 
-Auth requests use `{ "email": "...", "password": "..." }`. Register/login return `{ accessToken, refreshToken, user: { id, email } }`. Send access token as `Authorization: Bearer <token>`. Use refresh tokens only at `/auth/refresh`.
+## Route response
 
-## Service boundaries
+The route response contains named `origin` and `destination`, `travel_mode`, `route_provider`, `routes`, `safest_estimate_route_id`, `risk_method`, and `limitations`. Each route has `id`, `distance_meters`, `duration_seconds`, `path` (`[{ lat, lng }]`), `estimated_risk_score` (nullable), `estimated_risk_level`, `confidence`, and sampling details. A missing risk estimate does not hide a route's actual distance, duration, or geometry.
 
-The Flask app is organized as a modular monolith with replaceable provider adapters. Keep request parsing/validation in routes, persistence in SQLAlchemy models, provider calls in `providers.py`, and model inference/calibration in `scoring.py`. If load warrants it, the provider and inference modules can become separate services without changing the public API.
+When `GOOGLE_MAPS_API_KEY` or `GOOGLE_ROUTES_API_KEY` is configured, Google Routes is tried first; otherwise OSRM is used. If the first provider returns only one road, a Valhalla OpenStreetMap router is queried for alternatives. The frontend displays every distinct returned road geometry on an OpenStreetMap Leaflet map and offers a separate Google Maps directions link. Public routing providers can still return just one road when they cannot find a qualifying alternate.
 
-1. **API layer:** Flask, versioned URL prefix, CORS allowlist, JWT, validation, consistent errors, request IDs/rate limits at deployment gateway.
-2. **Persistence:** PostgreSQL in production; SQLite locally. `User`, `Destination`, `Analysis`, `Incident`, and `RevokedToken` entities. Use Flask-Migrate for schema changes.
-3. **Data adapters:** weather, geocoding/directions, crowd estimates, and curated historical incident aggregation. Each adapter reports source, observed-at time, freshness, and failure. Cache provider data with explicit TTL and never treat stale data as live.
-4. **Scoring:** versioned pipeline; planned Random Forest/XGBoost can consume feature vectors only after a documented, representative, privacy-reviewed training set and offline calibration exist. Persist model version, feature availability, confidence, and score for auditability. The included `baseline-v1` is a neutral placeholder, not a trained safety model.
-5. **Frontend:** `src/services/api.js` owns live/mock mode and response adapters. Views now call this service rather than importing mock modules directly. Keep local mock data clearly labeled and do not represent it as verified.
+## Model and data limits
 
-## Data model and safeguards
+The bundled Random Forest/XGBoost pipeline has limited geographic training coverage. Estimates outside its training region have low confidence when matching local historical records are unavailable. Weather comes from Open-Meteo; nearby place features come from OpenStreetMap Overpass; road directions come from Google Routes or OpenStreetMap routing. Provider outages are shown as unavailable data. Crowd level is contextual and does not change the score. Routing services may return fewer alternatives than requested; only actual returned road paths are displayed.
 
-- `Destination` stores normalized display name and coordinates; add a PostGIS point if radius-based searches are required.
-- `Incident` stores category, severity, event date, source, and verification state. Store aggregated/location-bucketed data; do not ingest victim names or precise personal data.
-- `Analysis` stores score, confidence, factor snapshot, timestamp, destination, and model version so historical results do not change when providers update.
-- `User` stores email and a Werkzeug password hash, never a plaintext password. Analysis history is scoped by user ID.
-- `RevokedToken` supports logout. Production should use HTTPS, strong independently generated secrets, short access-token lifetime, rate limits on auth and analysis, password reset/email verification, security headers, and a shared revocation store if multiple API workers run.
-- Treat provider outages as missing factors, lower confidence, and explain omissions. Do not silently fill data or return a confident numeric result from missing evidence.
-- Scores are estimates, never emergency guidance or a promise of safe travel. Provide reporting/feedback and incident-data correction workflows before public launch.
+Place lookups use OpenStreetMap Nominatim on user submit only, cache results, and limit requests to one per second. Current-location naming rounds coordinates before lookup. The UI discloses this location use to the user.
+
+Place lookups use OpenStreetMap Nominatim on user submit only, cache results, and limit requests to one per second. Current-location naming rounds coordinates before lookup. The UI discloses this location use to the user.
+
+The active app is `backend/app.py` and its services under `backend/services/` and `backend/ml/`. The separate `backend/app/` package contains an earlier auth/database scaffold and is not wired into these active API routes. Authentication, saved analysis history, and account endpoints are not available in the current running service.
 
 ## Local setup
 
-From `backend/`, create a virtual environment, install `requirements.txt`, copy `.env.example` to `.env`, then run `flask --app wsgi run --debug --port 5000`. The Vite dev proxy already forwards `/api` to port 5000. Set root `.env` values `VITE_API_MODE=live` and `VITE_API_BASE_URL=` to switch the frontend to Flask. `DEMO_DATA=true` seeds only the five currently supported Delhi destinations; disable it when using a managed database. Use migrations (`flask --app wsgi db init`, then `db migrate` and `db upgrade`) before production schema changes.
+From the repository root:
 
-## Current implementation limits
+```powershell
+py -m venv backend/.venv
+backend/.venv/Scripts/python.exe -m pip install -r requirements.txt
+backend/.venv/Scripts/python.exe backend/app.py
+```
 
-Auth, data models, destination lookup, analysis persistence, history, and API wiring are scaffolded. Weather, crowd, incident, directions, and trained ML integrations are intentionally provider seams because the project has no credentials, licensed data source, verified training set, or deployment policy configured. The backend returns unavailable/missing signals instead of inventing those facts. Before launch, supply providers, calibrate scores with domain review, run migrations, and configure production secrets/database/rate limits.
+In another terminal, run `npm install` and `npm run dev`. The root `.env` should set `VITE_API_MODE=live` and leave `VITE_API_BASE_URL` empty to use Vite's proxy to `http://127.0.0.1:5000`. Use `VITE_API_MODE=mock` to run the frontend with local sample data instead.

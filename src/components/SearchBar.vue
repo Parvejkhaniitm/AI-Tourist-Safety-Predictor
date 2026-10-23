@@ -1,7 +1,8 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
+import { reverseGeocodeCoordinates } from '../services/api'
 
-const props = defineProps({
+defineProps({
   modelValue: { type: String, default: '' },
   start: { type: String, default: '' },
   suggestions: { type: Array, default: () => [] },
@@ -9,7 +10,7 @@ const props = defineProps({
   startError: { type: String, default: '' },
 })
 
-const emit = defineEmits(['update:modelValue', 'update:start', 'submit'])
+const emit = defineEmits(['update:modelValue', 'update:start', 'update:startCoordinates', 'submit'])
 
 const locating = ref(false)
 const locationMsg = ref('')
@@ -19,10 +20,11 @@ function onInput(event) {
 }
 
 function onStartInput(event) {
+  emit('update:startCoordinates', null)
   emit('update:start', event.target.value)
 }
 
-// Browser se current location lo, phir naam me badlo
+// The explicit name lookup sends only rounded coordinates to the backend.
 function useMyLocation() {
   if (!navigator.geolocation) {
     locationMsg.value = 'Your browser does not support location.'
@@ -34,23 +36,19 @@ function useMyLocation() {
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
       const { latitude, longitude } = pos.coords
-      let label = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
+      const coordinates = { lat: latitude, lng: longitude }
+      emit('update:startCoordinates', coordinates)
+      emit('update:start', 'Finding your nearby area…')
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`,
-        )
-        const data = await res.json()
-        const a = data.address || {}
-        const parts = [
-          a.neighbourhood || a.suburb || a.road,
-          a.city || a.town || a.state_district || a.state,
-        ].filter(Boolean)
-        if (parts.length) label = parts.join(', ')
+        const placeName = await reverseGeocodeCoordinates(coordinates)
+        emit('update:start', placeName ? `${placeName} · Current location` : `Current location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`)
+        locationMsg.value = placeName ? `Location selected: ${placeName}` : 'Area name unavailable; your coordinates are still selected.'
       } catch {
-        // naam nahi mila to coordinates hi chalenge
+        emit('update:start', `Current location (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`)
+        locationMsg.value = 'Area name unavailable; your coordinates are still selected.'
+      } finally {
+        locating.value = false
       }
-      emit('update:start', label)
-      locating.value = false
     },
     () => {
       locating.value = false
@@ -60,10 +58,6 @@ function useMyLocation() {
   )
 }
 
-// Page khulte hi try karo (agar start pehle se khali hai)
-onMounted(() => {
-  if (!props.start) useMyLocation()
-})
 </script>
 
 <template>
@@ -86,11 +80,12 @@ onMounted(() => {
       <div v-if="startError" id="start-feedback" class="invalid-feedback">{{ startError }}</div>
     </div>
 
-    <div class="d-flex align-items-center gap-2 mt-2">
-        <button type="button" class="chip" :disabled="locating" @click="useMyLocation">
-          {{ locating ? 'Getting location...' : 'Use my location' }}
-        </button>
-        <span v-if="locationMsg" class="text-muted small">{{ locationMsg }}</span>
+    <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+      <button type="button" class="chip" :disabled="locating" @click="useMyLocation">
+        {{ locating ? 'Finding nearby place…' : 'Use my location' }}
+      </button>
+      <span v-if="locationMsg" class="text-muted small">{{ locationMsg }}</span>
+      <span v-else class="text-muted small">Area naming uses a rounded location with OpenStreetMap.</span>
     </div>
 
     <div class="search-grid">
@@ -150,7 +145,7 @@ onMounted(() => {
     </div>
 
     <p class="text-center text-muted small mt-3 mb-0 d-none d-md-block">
-      Suggestions come from a small predefined list. No login or sign-up needed.
+      Search runs only when you press Analyze; suggestions are quick starts, not a required list.
     </p>
   </form>
 </template>

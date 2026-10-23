@@ -13,7 +13,7 @@ import NavBar from '../components/NavBar.vue'
     <footer class="site-footer py-3 mt-auto">
       <div class="container d-flex flex-wrap justify-content-between gap-2 small">
         <span>SafeRoute AI · Plan with context. Travel with care.</span>
-        <span>Demo estimates are not verified and do not guarantee personal safety.</span>
+        <span>Estimates depend on available data and cannot guarantee personal safety.</span>
       </div>
     </footer>
   </div>

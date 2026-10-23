@@ -1,0 +1,12 @@
+# SafeRoute AI - backend + ML (Python 3.12)
+numpy
+pandas
+pyarrow
+requests
+scikit-learn
+xgboost
+shap
+joblib
+flask
+flask-cors
+python-dotenv

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import SearchBar from '../components/SearchBar.vue'
 import OverviewCard from '../components/OverviewCard.vue'
@@ -23,12 +23,28 @@ const startError = ref('')
 const startCoordinates = ref(null)
 const selectedSpot = ref(destinationSuggestions[0])
 const shouldPlayHeroVideo = ref(true)
+const homePage = ref(null)
+let revealObserver
 
 // Suggestions: pehle local list, backend se list aa jaye to wo
 const suggestions = ref(destinationSuggestions)
 
 onMounted(async () => {
   shouldPlayHeroVideo.value = !window.matchMedia('(prefers-reduced-motion: reduce)').matches && !navigator.connection?.saveData
+  const revealItems = homePage.value?.querySelectorAll('[data-scroll-reveal]') ?? []
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window)) {
+    revealItems.forEach((item) => item.classList.add('is-revealed'))
+  } else {
+    revealObserver = new IntersectionObserver((entries, observer) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('is-revealed')
+          observer.unobserve(entry.target)
+        }
+      })
+    }, { threshold: 0.14, rootMargin: '0px 0px -35px 0px' })
+    revealItems.forEach((item) => revealObserver.observe(item))
+  }
   try {
     const list = await fetchDestinations()
     if (list.length > 0) suggestions.value = list
@@ -37,6 +53,8 @@ onMounted(async () => {
     console.warn('[SafeRoute] Could not load destinations, using the local list.', err.message)
   }
 })
+
+onBeforeUnmount(() => revealObserver?.disconnect())
 
 // Type karte hi purana error hata do
 watch(destination, (value) => {
@@ -97,18 +115,8 @@ const lastUpdatedText = computed(() =>
 </script>
 
 <template>
-  <div class="home-page">
-    <video
-      v-if="shouldPlayHeroVideo"
-      class="home-page-background-video"
-      autoplay
-      muted
-      loop
-      playsinline
-      preload="metadata"
-      aria-hidden="true"
-      tabindex="-1"
-    >
+  <div ref="homePage" class="home-page">
+    <video v-if="shouldPlayHeroVideo" class="home-page-background-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true" tabindex="-1">
       <source src="/cinematic-road.mp4" type="video/mp4" />
     </video>
     <span class="home-page-background-shade" aria-hidden="true"></span>
@@ -146,7 +154,7 @@ const lastUpdatedText = computed(() =>
         <div class="hero-index" aria-hidden="true">01 <span>/ 03</span></div>
       </section>
 
-      <section class="search-panel" aria-labelledby="search-heading">
+      <section class="search-panel scroll-reveal reveal-from-left" data-scroll-reveal aria-labelledby="search-heading">
         <div class="search-heading-row">
           <div><div class="section-kicker">YOUR NEXT ADVENTURE</div><h2 id="search-heading">Where are you headed?</h2></div>
           <span class="search-step"><span>01</span> PLAN YOUR ROUTE</span>
@@ -154,7 +162,7 @@ const lastUpdatedText = computed(() =>
         <SearchBar v-model="destination" v-model:start="start" v-model:start-coordinates="startCoordinates" :suggestions="suggestions" :error="errorMessage" :start-error="startError" @submit="handleAnalyze" />
       </section>
 
-      <section class="discover-section" aria-labelledby="discover-heading">
+      <section class="discover-section scroll-reveal reveal-from-right" data-scroll-reveal aria-labelledby="discover-heading">
         <div class="section-head">
           <div><div class="section-kicker">A GOOD PLACE TO BEGIN</div><h2 id="discover-heading">On the map right now</h2></div>
           <span class="section-aside">A few places to get you going <span aria-hidden="true">↗</span></span>
@@ -180,7 +188,7 @@ const lastUpdatedText = computed(() =>
         </div>
       </section>
 
-      <section class="overview-section" aria-labelledby="overview-heading">
+      <section class="overview-section scroll-reveal reveal-from-left" data-scroll-reveal aria-labelledby="overview-heading">
         <div class="overview-topline"><div class="section-kicker">YOUR TRAVEL DASHBOARD</div><span class="live-dot"></span><span class="overview-label">PERSONAL OVERVIEW</span></div>
         <h2 id="overview-heading" class="overview-title">{{ hasResult ? `Your latest look at ${lastAnalysis.destination}` : 'A clearer picture, before you go.' }}</h2>
         <div class="overview-grid">
@@ -195,7 +203,7 @@ const lastUpdatedText = computed(() =>
         </div>
       </section>
 
-      <figure v-if="shouldPlayHeroVideo" class="journey-film" aria-label="A scenic drive through a forest">
+      <figure v-if="shouldPlayHeroVideo" class="journey-film scroll-reveal reveal-from-right" data-scroll-reveal aria-label="A scenic drive through a forest">
         <video class="journey-film-video" autoplay muted loop playsinline preload="metadata" aria-hidden="true" tabindex="-1">
           <source src="/cinematic-journey.mp4" type="video/mp4" />
         </video>
@@ -208,11 +216,11 @@ const lastUpdatedText = computed(() =>
         <span class="journey-film-index" aria-hidden="true">ON THE ROAD / 03</span>
       </figure>
 
-      <section class="steps-section" aria-labelledby="steps-heading">
+      <section class="steps-section scroll-reveal reveal-from-left" data-scroll-reveal aria-labelledby="steps-heading">
         <div class="steps-intro"><div class="section-kicker">A SIMPLE WAY TO START</div><h2 id="steps-heading">Three steps.<br /><em>More informed travel.</em></h2></div>
         <HowItWorks />
       </section>
-      <RouterLink class="about-teaser" :to="{ name: 'about' }">
+      <RouterLink class="about-teaser scroll-reveal reveal-from-right" data-scroll-reveal :to="{ name: 'about' }">
         <span class="about-teaser-mark" aria-hidden="true">S<span>R</span></span>
         <span class="about-teaser-copy"><span class="section-kicker">A LITTLE MORE ABOUT US</span><strong>Travel planning with context, transparency, and you in control.</strong><small>See what SafeRoute can help with — and where its limits are.</small></span>
         <span class="about-teaser-action" aria-hidden="true">↗</span>
@@ -224,7 +232,7 @@ const lastUpdatedText = computed(() =>
 
 <style scoped>
 .home-page{--ink:#132e2a;--muted:#62766e;--pine:#163e37;--mint:#dce9de;--lime:#c4e581;--paper:#f6f7f1;background:transparent;color:var(--ink);padding:28px 0 0;overflow:visible}
-.home-page{position:relative;isolation:isolate;min-height:100vh;background:transparent!important}.home-page-background-video,.home-page-background-shade{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}.home-page-background-video{z-index:-2;object-fit:cover;object-position:center 52%;opacity:.9;filter:brightness(.78) saturate(.88)}.home-page-background-shade{z-index:-1;background:linear-gradient(90deg,rgba(5,15,18,.58),rgba(7,20,22,.25) 56%,rgba(8,22,22,.2)),linear-gradient(0deg,rgba(5,14,17,.48),rgba(5,14,17,.14) 60%,rgba(5,14,17,.24))}
+.home-page{position:relative;isolation:isolate;min-height:100vh;background:transparent!important}.home-page-background-video,.home-page-background-shade{position:fixed;inset:0;width:100%;height:100%;pointer-events:none}.home-page-background-video{z-index:-2;object-fit:cover;object-position:center 52%;filter:brightness(.82) saturate(.92)}.home-page-background-shade{z-index:-1;background:linear-gradient(90deg,rgba(5,15,18,.62),rgba(7,20,22,.38) 56%,rgba(8,22,22,.3)),linear-gradient(0deg,rgba(5,14,17,.55),rgba(5,14,17,.19) 58%,rgba(5,14,17,.3))}.scroll-reveal{opacity:0;transform:translate3d(48px,0,0);transition:opacity .75s cubic-bezier(.2,.7,.2,1),transform .75s cubic-bezier(.2,.7,.2,1)}.scroll-reveal.reveal-from-left{transform:translate3d(-48px,0,0)}.scroll-reveal.is-revealed{opacity:1;transform:translate3d(0,0,0)}.search-panel{z-index:3}
 .home-container{max-width:1190px}
 .home-hero{min-height:442px;position:relative;display:grid;grid-template-columns:1fr .92fr;align-items:center;overflow:hidden;border-radius:22px;background:radial-gradient(ellipse at 78% 16%,rgba(99,151,110,.34),transparent 29%),linear-gradient(116deg,#102d2b 0%,#17443b 57%,#285a4d 100%);color:#f6f5e9;padding:58px 62px 66px;box-shadow:0 22px 55px rgba(21,54,46,.13)}
 .home-page .home-hero{background:linear-gradient(112deg,rgba(7,28,28,.68),rgba(17,61,49,.52))!important;backdrop-filter:blur(2px)}

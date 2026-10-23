@@ -68,7 +68,7 @@ def build_factors(*, places, loc_pts, hist, hist_pts, time_pts, weather_pts, loc
             "location", "Location: data unavailable",
             "The live nearby-places lookup did not return data after retrying map-service mirrors. "
             "Location and crowd signals are omitted rather than guessed.",
-            None, 4, 12, "OpenStreetMap (temporarily unavailable)",
+            None, 4, 12, "",
             "Nearby map data was unavailable.", available=False))
     else:
         d = "raise" if loc_pts > 0 else "lower"
@@ -112,7 +112,7 @@ def build_factors(*, places, loc_pts, hist, hist_pts, time_pts, weather_pts, loc
         factors.append(_card(
             "crowd", "Crowd Density",
             f"{demo_crowd[0]} activity · {demo_crowd[1]}/100. {demo_crowd[2]}",
-            0.0, 99, 99, "Context estimate · not a live reading or part of the risk score",
+            0.0, 99, 99, "Illustrative estimate",
             f"A sample crowd estimate suggests {demo_crowd[0].lower()} activity ({demo_crowd[1]}/100)."))
     else:
         factors.append(_card(

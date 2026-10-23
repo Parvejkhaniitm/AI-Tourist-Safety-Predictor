@@ -18,6 +18,6 @@ defineProps({
     <p v-if="!displayOnly && available" class="small fw-bold mb-1" :class="`impact-${impact}`">{{ impactLabel }}</p>
     <p v-else-if="!displayOnly" class="small fw-bold mb-1 text-muted">Data unavailable</p>
 
-    <p v-if="!displayOnly" class="small text-faint mb-0">{{ dataLabel }}</p>
+    <p v-if="dataLabel" class="small text-faint mb-0">{{ dataLabel }}</p>
   </article>
 </template>

@@ -86,7 +86,7 @@ function adaptAnalysis(raw, resolvedPlace) {
       text: factor.text,
       impact: ['raises', 'lowers', 'neutral'].includes(factor.impact) ? factor.impact : 'neutral',
       impactLabel: factor.impact_label || 'Not included',
-      dataLabel: factor.data_label || 'Source unavailable',
+      dataLabel: factor.data_label || (factor.available ? 'Source unavailable' : ''),
       available: factor.available,
     })),
     reasons: raw.reasons,

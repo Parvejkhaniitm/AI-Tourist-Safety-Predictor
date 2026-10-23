@@ -156,18 +156,59 @@ def build_cell_features():
 
 
 # ---------------- live: any point on Earth ----------------
-def get_features_live(lat, lng, radius=RADIUS_M):
-    """Counts of each place type within `radius` metres of (lat, lng). Raises on failure."""
-    parts = "".join(f"nwr{_filter(k, v)}(around:{radius},{lat},{lng});"
-                    for rules in CATEGORIES.values() for k, v in rules)
-    data = overpass(f"[out:json][timeout:25];({parts});out tags center;", timeout=40, retries=2, wait_429=2)
-    counts = {c: 0 for c in CATEGORIES}
-    for el in data.get("elements", []):
-        tags = el.get("tags", {})
-        for cat in CATEGORIES:
-            if _matches(tags, cat):
-                counts[cat] += 1
-    counts["poi_total"] = sum(counts[c] for c in DENSITY_CATS)
+def get_features_live(lat, lng, radius=RADIUS_M, fast=False):
+    """Count nearby places. Fast mode is intended for route comparisons."""
+    parts = "".join(
+        f"nwr{_filter(k, v)}(around:{radius},{lat},{lng});"
+        for rules in CATEGORIES.values()
+        for k, v in rules
+    )
+    query = f"[out:json][timeout:8];({parts});out tags center;"
+
+    if fast:
+        data = None
+        last_error = "No Overpass server responded"
+
+        # Try at most two servers, with a short timeout and no retry delays.
+        for url in MIRRORS[:2]:
+            try:
+                response = requests.post(
+                    url,
+                    data={"data": query},
+                    headers=HEADERS,
+                    timeout=3,
+                )
+                if response.status_code != 200:
+                    last_error = f"HTTP {response.status_code}"
+                    continue
+
+                data = response.json()
+                break
+            except (requests.RequestException, ValueError) as exc:
+                last_error = type(exc).__name__
+
+        if data is None:
+            raise RuntimeError(
+                f"Fast Overpass lookup failed: {last_error}"
+            )
+    else:
+        data = overpass(
+            query,
+            timeout=8,
+            retries=1,
+            wait_429=0,
+        )
+
+    counts = {category: 0 for category in CATEGORIES}
+    for element in data.get("elements", []):
+        tags = element.get("tags", {})
+        for category in CATEGORIES:
+            if _matches(tags, category):
+                counts[category] += 1
+
+    counts["poi_total"] = sum(
+        counts[category] for category in DENSITY_CATS
+    )
     return counts
 
 

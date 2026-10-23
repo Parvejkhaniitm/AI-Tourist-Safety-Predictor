@@ -73,13 +73,13 @@ def is_us_holiday(lat, lng, dt):
     return int(dt.date() in _holiday_cache[dt.year])
 
 
-def get_places(lat, lng):
+def get_places(lat, lng, fast=False):
     key = (round(lat, 3), round(lng, 3))
     hit = _places_cache.get(key)
     if hit:
         return hit
     try:
-        places = get_features_live(lat, lng)
+        places = get_features_live(lat, lng, fast=fast)
     except Exception as e:
         raise UpstreamError("The nearby-places service (OpenStreetMap) did not respond. "
                             "Please try again in a moment.") from e
@@ -139,11 +139,11 @@ def level_of(score):
 
 
 # ---------------- main entry ----------------
-def analyze(lat, lng, name, local_dt=None):
+def analyze(lat, lng, name, local_dt=None, fast=False):
     tp, sp = load_models()
     ctx = get_local_context(lat, lng, local_dt)
     ldt, weather = ctx["local_dt"], ctx["weather"]
-    places = get_places(lat, lng)                       # may raise UpstreamError
+    places = get_places(lat, lng, fast=fast)            # may raise UpstreamError
 
     # --- "where": place baseline ---
     Xs = pd.DataFrame([{c: places[c] for c in FEATURE_COLUMNS}])[sp["features"]]

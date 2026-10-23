@@ -15,7 +15,7 @@ def _load(lat, lng):
     hit = _cache.get(key)
     if hit:
         return hit
-    r = requests.get(URL, timeout=15, params={
+    r = requests.get(URL, timeout=4, params={
         "latitude": lat, "longitude": lng, "hourly": HOURLY,
         "timezone": "auto", "past_days": 7, "forecast_days": 16,
     })

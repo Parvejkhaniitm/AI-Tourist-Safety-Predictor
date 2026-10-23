@@ -1,0 +1,344 @@
+/* ===== SafeRoute AI theme (colors estimated from the wireframe PDF) ===== */
+:root {
+  --sr-navy: #0b1d3a;
+  --sr-navy-hover: #17325f;
+  --sr-text: #0f1f3d;
+  --sr-muted: #4a5a73;
+  --sr-faint: #7c8aa5;
+  --sr-bg: #f4f6fa;
+  --sr-surface: #ffffff;
+  --sr-border: #d3dae6;
+  --sr-dashed: #aeb9cc;
+  --sr-chip-bg: #eef2f8;
+  --sr-chip-border: #9aa7bd;
+
+  --sr-safe-bg: #dff3e6;
+  --sr-safe-text: #14683a;
+  --sr-safe-border: #8fcfa8;
+  --sr-moderate-bg: #fff1cf;
+  --sr-moderate-text: #7a5200;
+  --sr-moderate-border: #e0a526;
+  --sr-high-bg: #fde4e4;
+  --sr-high-text: #8a1c1c;
+  --sr-high-border: #b42318;
+  --sr-none-bg: #e6eaf2;
+
+  /* Bootstrap ke apne variables ko hamare colors se override karna */
+  --bs-body-bg: var(--sr-bg);
+  --bs-body-color: var(--sr-text);
+  --bs-secondary-color: var(--sr-muted);
+  --bs-border-color: var(--sr-border);
+  --bs-primary: var(--sr-navy);
+  --bs-primary-rgb: 11, 29, 58;
+}
+
+/* ----- Buttons ----- */
+.btn-primary {
+  --bs-btn-bg: var(--sr-navy);
+  --bs-btn-border-color: var(--sr-navy);
+  --bs-btn-hover-bg: var(--sr-navy-hover);
+  --bs-btn-hover-border-color: var(--sr-navy-hover);
+  --bs-btn-active-bg: var(--sr-navy-hover);
+  --bs-btn-active-border-color: var(--sr-navy-hover);
+  --bs-btn-disabled-bg: var(--sr-navy);
+  --bs-btn-disabled-border-color: var(--sr-navy);
+  --bs-btn-focus-shadow-rgb: 11, 29, 58;
+  font-weight: 600;
+}
+.btn-outline-primary {
+  --bs-btn-color: var(--sr-navy);
+  --bs-btn-border-color: var(--sr-navy);
+  --bs-btn-hover-bg: var(--sr-navy);
+  --bs-btn-hover-border-color: var(--sr-navy);
+  --bs-btn-active-bg: var(--sr-navy);
+  --bs-btn-active-border-color: var(--sr-navy);
+  font-weight: 600;
+}
+
+/* ----- Cards ----- */
+.sr-card {
+  background: var(--sr-surface);
+  border: 1px solid var(--sr-border);
+  border-radius: 14px;
+}
+.sr-card-dashed {
+  background: var(--sr-surface);
+  border: 1px dashed var(--sr-dashed);
+  border-radius: 10px;
+}
+
+/* ----- Text helpers ----- */
+.text-faint { color: var(--sr-faint); }
+
+/* ----- Navbar ----- */
+.sr-navbar {
+  background: var(--sr-surface);
+  border-bottom: 1px solid var(--sr-border);
+}
+.sr-navbar .navbar-brand { color: var(--sr-navy); }
+.sr-navbar .nav-link { color: var(--sr-muted); }
+.sr-navbar .nav-link:hover { color: var(--sr-navy); }
+.sr-navbar .nav-link.active {
+  color: var(--sr-navy);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 8px;
+  text-decoration-thickness: 2px;
+}
+.sr-navbar { background: rgba(255,255,255,.96); backdrop-filter: blur(14px); box-shadow: 0 3px 18px rgba(22,52,41,.045); }
+.sr-navbar .container { max-width: 1190px; }
+.sr-navbar .navbar-brand { letter-spacing: -.025em; }
+.sr-navbar .nav-link { border-radius: 8px; padding-inline: .75rem !important; transition: color .18s ease, background .18s ease; }
+.sr-navbar .nav-link:hover { background: #edf3e9; }
+.sr-navbar .nav-link.active { text-decoration: none; background: #edf3e9; }
+.sr-navbar .btn-primary { border-radius: 9px; padding: .58rem .9rem; background:#c4e581; border-color:#c4e581; color:#19392f; }
+.sr-navbar .btn-primary:hover { background:#b7dc6f; border-color:#b7dc6f; color:#19392f; transform:translateY(-1px); }
+.site-footer { border-top: 1px solid #dce4da; background: #edf1e9; color: #6c7c71; }
+
+/* ----- Search ----- */
+.search-icon {
+  position: absolute;
+  left: 1rem;
+  top: 0.95rem;
+  width: 18px;
+  height: 18px;
+  color: var(--sr-muted);
+  pointer-events: none;
+}
+.search-input {
+  padding-left: 2.75rem;
+  border: 2px solid var(--sr-navy);
+  border-radius: 10px;
+}
+.search-input:focus {
+  border-color: var(--sr-navy);
+  box-shadow: 0 0 0 0.2rem rgba(11, 29, 58, 0.15);
+}
+.search-input.is-invalid {
+  border-color: var(--sr-high-border);
+  background-image: none;
+  padding-right: 0.75rem;
+}
+.invalid-feedback { color: var(--sr-high-text); }
+
+/* ----- Chips ----- */
+.chip {
+  background: var(--sr-chip-bg);
+  border: 1px solid var(--sr-chip-border);
+  color: var(--sr-text);
+  border-radius: 999px;
+  padding: 0.25rem 0.85rem;
+  font-size: 0.85rem;
+}
+.chip:hover { background: #e1e8f3; }
+.chip-danger {
+  background: #fff;
+  border-color: var(--sr-high-border);
+  color: var(--sr-high-text);
+}
+.chip-danger:hover { background: #fbeaea; }
+
+/* ----- Risk badges ----- */
+.risk-badge {
+  display: inline-block;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.3rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+.risk-safe { background: var(--sr-safe-bg); color: var(--sr-safe-text); border-color: var(--sr-safe-border); }
+.risk-moderate { background: var(--sr-moderate-bg); color: var(--sr-moderate-text); border-color: var(--sr-moderate-border); }
+.risk-high { background: var(--sr-high-bg); color: var(--sr-high-text); border-color: var(--sr-high-border); }
+.risk-none { background: var(--sr-none-bg); color: var(--sr-navy); }
+
+/* ----- Status messages ----- */
+.status-message {
+  border: 1px solid;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+}
+.status-info { background: var(--sr-bg); border-style: dashed; border-color: var(--sr-dashed); color: var(--sr-text); }
+.status-success { background: var(--sr-safe-bg); border-color: var(--sr-safe-border); color: var(--sr-safe-text); }
+.status-warning { background: var(--sr-moderate-bg); border-color: var(--sr-moderate-border); color: var(--sr-moderate-text); }
+.status-danger { background: var(--sr-high-bg); border-color: var(--sr-high-border); color: var(--sr-high-text); }
+
+/* ----- Overview card values ----- */
+.sr-value { font-size: 1.25rem; font-weight: 700; color: var(--sr-navy); }
+.sr-value.text-faint { color: var(--sr-faint); }
+@media (min-width: 768px) {
+  .sr-value { font-size: 2rem; }
+  .sr-value.compact { font-size: 1.35rem; }
+}
+
+/* ----- How it works ----- */
+.sr-step {
+  background: var(--sr-surface);
+  border: 1px solid var(--sr-border);
+  border-radius: 10px;
+}
+.step-number {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--sr-navy);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+
+/* ===== Phase 3: gauge, scale, factor cards ===== */
+.progress-bar { background-color: var(--sr-navy); }
+
+.gauge-circle {
+  position: relative;
+  width: 170px;
+  height: 170px;
+  margin: 0 auto;
+}
+.gauge-circle svg { width: 100%; height: 100%; }
+.gauge-track { fill: none; stroke: var(--sr-none-bg); stroke-width: 10; }
+.gauge-value {
+  fill: none;
+  stroke-width: 10;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease;
+}
+.gauge-safe { stroke: #1e8a4c; }
+.gauge-moderate { stroke: #e0a526; }
+.gauge-high { stroke: #b42318; }
+.gauge-none { stroke: var(--sr-dashed); }
+.gauge-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.gauge-number { font-size: 2.75rem; font-weight: 800; line-height: 1; color: var(--sr-navy); }
+.gauge-caption { font-size: 0.8rem; color: var(--sr-muted); }
+
+.score-scale { max-width: 360px; margin: 1.5rem auto 0; text-align: left; }
+.scale-track { position: relative; }
+.scale-bar { display: flex; height: 10px; border-radius: 999px; overflow: hidden; }
+.seg-high { background: var(--sr-high-border); }
+.seg-moderate { background: var(--sr-moderate-border); }
+.seg-safe { background: var(--sr-safe-border); }
+.scale-marker {
+  position: absolute;
+  top: -5px;
+  width: 4px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--sr-navy);
+  transform: translateX(-50%);
+}
+.scale-labels { display: flex; margin-top: 0.5rem; font-size: 0.75rem; color: var(--sr-muted); }
+
+.impact-lowers { color: var(--sr-safe-text); }
+.impact-neutral { color: var(--sr-muted); }
+.impact-raises { color: var(--sr-moderate-text); }
+
+/* ===== Phase 4: route cards and map placeholder ===== */
+.dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.dot-shortest { background: var(--sr-navy); }
+.dot-safer { background: #1e8a4c; }
+
+.route-card { border-width: 2px; }
+.route-card-recommended {
+  border-color: #1e8a4c;
+  box-shadow: 0 0 0 3px rgba(30, 138, 76, 0.12);
+}
+.recommended-pill {
+  background: var(--sr-safe-bg);
+  color: var(--sr-safe-text);
+  border: 1px solid var(--sr-safe-border);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.65rem;
+}
+.route-stat-value { font-size: 1.5rem; font-weight: 700; color: var(--sr-navy); line-height: 1.2; }
+.progress-bar.bar-safe { background-color: #1e8a4c; }
+.progress-bar.bar-moderate { background-color: #e0a526; }
+.progress-bar.bar-high { background-color: #b42318; }
+.progress-bar.bar-none { background-color: var(--sr-dashed); }
+
+.map-box {
+  background: #e9eef6;
+  border: 1px dashed var(--sr-dashed);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.map-box svg { width: 100%; height: auto; display: block; }
+.map-road { fill: none; stroke: #ffffff; stroke-width: 8; stroke-linecap: round; }
+.map-line { fill: none; stroke-width: 5; stroke-linecap: round; }
+.map-line-shortest { stroke: var(--sr-navy); stroke-dasharray: 10 8; }
+.map-line-safer { stroke: #1e8a4c; }
+.map-pin-start { fill: #ffffff; stroke: var(--sr-navy); stroke-width: 4; }
+.map-pin-end { fill: var(--sr-navy); }
+.map-label { font-size: 15px; font-weight: 700; fill: var(--sr-navy); }
+
+.endpoint-box { background: var(--sr-surface); border: 1px solid var(--sr-border); border-radius: 10px; }
+.endpoint-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; color: var(--sr-muted); }
+.tradeoff-value { font-size: 1.75rem; font-weight: 800; color: var(--sr-navy); line-height: 1.2; }
+
+
+
+
+/* ===== Phase 6: responsive polish ===== */
+
+/* Faint text ka contrast badhaya (pehle #7c8aa5 tha, chhote text me kam padhne layak tha) */
+:root { --sr-faint: #66748f; }
+
+/* Keyboard se navigate karne par focus dikhe */
+:focus-visible {
+  outline: 3px solid rgba(11, 29, 58, 0.35);
+  outline-offset: 2px;
+}
+
+/* Hero headline: mobile par chhota, desktop par bada */
+.hero-title { font-size: 2rem; line-height: 1.15; }
+@media (min-width: 768px) {
+  .hero-title { font-size: 3rem; }
+}
+
+/* Navbar ka hamburger button wireframe jaisa halka border */
+.sr-navbar .navbar-toggler { border-color: var(--sr-border); }
+
+/* Search area: mobile = label, input, chips, button | desktop = label, (input + button), chips */
+.search-grid {
+  display: grid;
+  gap: 0.5rem 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'label'
+    'field'
+    'chips'
+    'submit';
+}
+.sg-label { grid-area: label; }
+.sg-field { grid-area: field; }
+.sg-chips { grid-area: chips; margin: 0.25rem 0; }
+.sg-submit { grid-area: submit; }
+@media (min-width: 768px) {
+  .search-grid {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      'label label'
+      'field submit'
+      'chips chips';
+  }
+  .sg-submit { align-self: start; }
+}
+
+/* Chhoti screen (phone) par numbers overflow na karein */
+@media (max-width: 575.98px) {
+  .tradeoff-value { font-size: 1.15rem; }
+  .route-stat-value { font-size: 1.25rem; }
+  .gauge-circle { width: 150px; height: 150px; }
+  .gauge-number { font-size: 2.25rem; }
+}

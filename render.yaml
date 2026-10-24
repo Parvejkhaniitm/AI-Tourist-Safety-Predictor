@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: saferoute-ai-api
+    runtime: python
+    region: singapore
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: CORS_ORIGINS
+        value: https://saferoute-ai-web.onrender.com
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: DEMO_DATA
+        value: "true"
+
+  - type: static
+    name: saferoute-ai-web
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_MODE
+        value: live
+      - key: VITE_API_BASE_URL
+        value: https://saferoute-ai-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
